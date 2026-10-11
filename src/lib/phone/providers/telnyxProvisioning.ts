@@ -51,6 +51,7 @@ export async function provisionTelnyxDeviceVoice(input: {
   const sipUsername = username(input.deviceId);
   const sipPassword = password();
   const outboundVoiceProfileId = env("TELNYX_OUTBOUND_VOICE_PROFILE_ID");
+  const androidPushCredentialId = env("TELNYX_ANDROID_PUSH_CREDENTIAL_ID");
 
   const connection = await request<{ id?: string }>("/credential_connections", {
     method: "POST",
@@ -59,6 +60,7 @@ export async function provisionTelnyxDeviceVoice(input: {
       user_name: sipUsername,
       password: sipPassword,
       active: true,
+      android_push_credential_id: androidPushCredentialId,
       outbound: {
         outbound_voice_profile_id: outboundVoiceProfileId,
       },
