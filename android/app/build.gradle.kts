@@ -34,6 +34,4 @@ android {
 dependencies {
     implementation("com.github.team-telnyx:telnyx-webrtc-android:3.7.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation(platform("com.google.firebase:firebase-bom:35.0.0"))
-    implementation("com.google.firebase:firebase-messaging")
 }
