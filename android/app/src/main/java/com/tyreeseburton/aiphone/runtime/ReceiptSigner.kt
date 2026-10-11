@@ -26,10 +26,20 @@ class ReceiptSigner {
     }
 
     fun fingerprint(): String {
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val encoded = ks.getCertificate(alias).publicKey.encoded
+        val encoded = publicKeyBytes()
         return MessageDigest.getInstance("SHA-256").digest(encoded)
             .joinToString(":") { "%02X".format(it) }
+    }
+
+    fun publicKeyPem(): String {
+        val b64 = Base64.getMimeEncoder(64, "\n".toByteArray())
+            .encodeToString(publicKeyBytes())
+        return "-----BEGIN PUBLIC KEY-----\n$b64\n-----END PUBLIC KEY-----"
+    }
+
+    private fun publicKeyBytes(): ByteArray {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        return ks.getCertificate(alias).publicKey.encoded
     }
 
     fun sign(payload: ByteArray): String {
