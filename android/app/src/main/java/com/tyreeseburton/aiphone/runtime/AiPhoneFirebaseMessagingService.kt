@@ -1,7 +1,6 @@
 package com.tyreeseburton.aiphone.runtime
 
 import android.content.Intent
-import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -30,7 +29,7 @@ class AiPhoneFirebaseMessagingService : FirebaseMessagingService() {
             putExtra(IncomingCallService.EXTRA_METADATA, metadata)
             putExtra(IncomingCallService.EXTRA_CALLER, caller)
         }
-        ContextCompat.startForegroundService(this, service)
+        startForegroundService(service)
     }
 
     companion object {
