@@ -39,7 +39,7 @@ export default async function OverviewPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Overview" title={`Good to see you, ${user.name.split(" ")[0]}.`} description="Here is what your robots understood, what needs your approval, and what they did." />
+      <PageHeader eyebrow="Overview" title={`Good to see you, ${user.name.split(" ")[0]}.`} description="Your AI Phone control plane: devices, capabilities, approvals, actions, and receipts." />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
@@ -59,7 +59,7 @@ export default async function OverviewPage() {
               <Link href="/dashboard/plans" className="text-xs text-lime-300 hover:underline">All plans →</Link>
             </div>
             {awaiting.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">Nothing is waiting on you. Create a plan to put the robot to work.</p>
+              <p className="rounded-xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">Nothing is waiting on you.</p>
             ) : (
               <div className="space-y-3">
                 {awaiting.map((p) => (
@@ -108,11 +108,15 @@ export default async function OverviewPage() {
         <div className="space-y-6 lg:col-span-2">
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">Fleet</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">Your devices</h2>
               <Link href="/dashboard/devices" className="text-xs text-lime-300 hover:underline">Manage →</Link>
             </div>
             {deviceRows.length === 0 ? (
-              <p className="text-sm text-zinc-500">No devices enrolled.</p>
+              <div className="space-y-3">
+                <p className="text-sm text-zinc-400">No Android phone is connected yet.</p>
+                <p className="text-xs text-zinc-500">Plug in a compatible phone by USB and run the Provisioning Studio to turn it into your AI Phone.</p>
+                <Link href="/dashboard/studio" className="inline-flex rounded-lg border border-lime-400/30 bg-lime-400/10 px-3 py-2 text-xs font-medium text-lime-200 hover:border-lime-400/50">Provision a phone →</Link>
+              </div>
             ) : (
               <ul className="space-y-3">
                 {deviceRows.slice(0, 5).map((d) => (
