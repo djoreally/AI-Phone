@@ -27,6 +27,9 @@ class DeviceTransport(
     fun fetchVoiceConfig(): JSONObject =
         request("GET", "/api/runtime/voice/config?deviceId=$deviceId", null)
 
+    fun fetchPushConfig(): JSONObject =
+        request("GET", "/api/runtime/push/config?deviceId=$deviceId", null)
+
     fun startVoiceCall(to: String, clientState: String? = null): JSONObject {
         val body = JSONObject()
             .put("deviceId", deviceId)
