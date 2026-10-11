@@ -34,19 +34,25 @@ export function POST(req: Request, ctx: Ctx) {
       phoneNumber,
     });
 
-    await pool.query("begin");
+    const client = await pool.connect();
     try {
-      await pool.query(
+      await client.query("begin");
+      await client.query(
         `insert into device_voice_identities
           (device_id, user_id, provider, provider_connection_id, provider_phone_number_id, phone_number, sip_username, sip_secret_ciphertext, status)
          values ($1,$2,'telnyx',$3,$4,$5,$6,$7,'ready')`,
         [device.id, user.id, identity.connectionId, identity.phoneNumberId, identity.phoneNumber, identity.sipUsername, encryptVoiceSecret(identity.sipPassword)],
       );
-      await db.update(devices).set({ voiceProvider: "telnyx", assignedNumber: identity.phoneNumber }).where(eq(devices.id, device.id));
-      await pool.query("commit");
+      await client.query(
+        "update devices set voice_provider = 'telnyx', assigned_number = $1 where id = $2 and user_id = $3",
+        [identity.phoneNumber, device.id, user.id],
+      );
+      await client.query("commit");
     } catch (error) {
-      await pool.query("rollback");
+      await client.query("rollback");
       throw error;
+    } finally {
+      client.release();
     }
 
     return NextResponse.json({
