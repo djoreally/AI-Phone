@@ -3,7 +3,8 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { capabilities, devices, plans, receipts } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
-import { Badge, Card, PageHeader, decisionTone, levelTone, timeAgo } from "@/components/ui";
+import { Badge, Card, PageHeader, decisionTone, levelTone } from "@/components/ui";
+import { timeAgo } from "@/lib/time";
 import { EXECUTOR_LABEL, summarizeCompatibility } from "@/lib/engine";
 import { redirect } from "next/navigation";
 
