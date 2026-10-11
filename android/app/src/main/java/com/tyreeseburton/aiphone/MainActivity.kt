@@ -3,7 +3,9 @@ package com.tyreeseburton.aiphone
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
@@ -15,6 +17,8 @@ import com.tyreeseburton.aiphone.capabilities.SmsCapability
 import com.tyreeseburton.aiphone.capabilities.TelnyxHandsetVoice
 import com.tyreeseburton.aiphone.runtime.Decision
 import com.tyreeseburton.aiphone.runtime.DeviceTransport
+import com.tyreeseburton.aiphone.runtime.FirebasePush
+import com.tyreeseburton.aiphone.runtime.IncomingCallService
 import com.tyreeseburton.aiphone.runtime.PolicyEngine
 import com.tyreeseburton.aiphone.runtime.ReceiptArtifact
 import com.tyreeseburton.aiphone.runtime.ReceiptSigner
@@ -37,6 +41,8 @@ class MainActivity : Activity() {
     private var pendingMessage = ""
     private var pendingCommandId: Int? = null
     private var pendingVoiceConnect = false
+    private var pendingPushMetaData: String? = null
+    private var pendingFcmToken: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,7 +50,15 @@ class MainActivity : Activity() {
         voiceStore = VoiceIdentityStore(this)
         voice = TelnyxHandsetVoice(this)
         voice.onIncomingCall = { incoming ->
-            runOnUiThread { toast("Incoming call from ${incoming.callerNumber}") }
+            runOnUiThread {
+                stopIncomingCallSurface()
+                AlertDialog.Builder(this)
+                    .setTitle("Incoming call")
+                    .setMessage("Call from ${incoming.callerNumber}")
+                    .setNegativeButton("Reject") { _, _ -> voice.reject(incoming.callId) }
+                    .setPositiveButton("Answer") { _, _ -> voice.answer(incoming.callId, incoming.callerNumber) }
+                    .show()
+            }
         }
         val prefs = getSharedPreferences("runtime", MODE_PRIVATE)
 
@@ -53,7 +67,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(48, 72, 48, 48)
         }
-        root.addView(TextView(this).apply { text = "AI Phone Runtime v0.3"; textSize = 24f })
+        root.addView(TextView(this).apply { text = "AI Phone Runtime v0.4"; textSize = 24f })
         root.addView(TextView(this).apply {
             text = "Physical handset enrolled to the control plane. Policy before action. Verified receipt after action."
             textSize = 15f
@@ -65,28 +79,23 @@ class MainActivity : Activity() {
         root.addView(serverInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(deviceIdInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(tokenInput, LinearLayout.LayoutParams(-1, -2))
-        root.addView(Button(this).apply {
-            text = "Enroll this phone"
-            setOnClickListener { enrollPhone() }
-        }, LinearLayout.LayoutParams(-1, -2))
-        root.addView(Button(this).apply {
-            text = "Sync voice identity & connect"
-            setOnClickListener { syncVoiceIdentity() }
-        }, LinearLayout.LayoutParams(-1, -2))
-        root.addView(Button(this).apply {
-            text = "Poll control plane"
-            setOnClickListener { pollCommand() }
-        }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "Enroll this phone"; setOnClickListener { enrollPhone() } }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "Sync voice identity & connect"; setOnClickListener { syncVoiceIdentity() } }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "Poll control plane"; setOnClickListener { pollCommand() } }, LinearLayout.LayoutParams(-1, -2))
 
         phoneInput = EditText(this).apply { hint = "Phone number"; inputType = android.text.InputType.TYPE_CLASS_PHONE }
         messageInput = EditText(this).apply { hint = "Message"; minLines = 3 }
         root.addView(phoneInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(messageInput, LinearLayout.LayoutParams(-1, -2))
-        root.addView(Button(this).apply {
-            text = "Policy-check & send SMS"
-            setOnClickListener { requestSms(null) }
-        }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "Policy-check & send SMS"; setOnClickListener { requestSms(null) } }, LinearLayout.LayoutParams(-1, -2))
         setContentView(root)
+        handleVoicePush(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleVoicePush(intent)
     }
 
     private fun transport(): DeviceTransport {
@@ -114,48 +123,68 @@ class MainActivity : Activity() {
     private fun syncVoiceIdentity() {
         Thread {
             try {
-                val config = transport().fetchVoiceConfig()
-                voiceStore.save(config)
-                runOnUiThread { ensureVoicePermissionAndConnect() }
+                val client = transport()
+                voiceStore.save(client.fetchVoiceConfig())
+                FirebasePush.ensureInitialized(this, client.fetchPushConfig())
+                FirebasePush.token(this) { result ->
+                    runOnUiThread {
+                        result.onSuccess { token ->
+                            pendingFcmToken = token
+                            ensureVoicePermissionAndConnect()
+                        }.onFailure { error -> toast("FCM registration failed: ${error.message}") }
+                    }
+                }
             } catch (e: Exception) {
                 runOnUiThread { toast("Voice provisioning failed: ${e.message}") }
             }
         }.start()
     }
 
+    private fun handleVoicePush(intent: Intent?) {
+        if (intent?.getBooleanExtra(IncomingCallService.EXTRA_FROM_PUSH, false) != true) return
+        pendingPushMetaData = intent.getStringExtra(IncomingCallService.EXTRA_METADATA)
+        pendingFcmToken = FirebasePush.storedToken(this)
+        ensureVoicePermissionAndConnect()
+    }
+
     private fun ensureVoicePermissionAndConnect() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+        val missing = mutableListOf<String>()
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) missing += Manifest.permission.RECORD_AUDIO
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) missing += Manifest.permission.POST_NOTIFICATIONS
+        if (missing.isEmpty()) {
             connectVoiceFromStore()
             return
         }
         pendingVoiceConnect = true
-        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), VOICE_PERMISSION_REQUEST)
+        requestPermissions(missing.toTypedArray(), VOICE_PERMISSION_REQUEST)
     }
 
     private fun connectVoiceFromStore() {
-        val identity = voiceStore.load() ?: run {
-            toast("No voice identity stored on this handset")
-            return
-        }
+        val identity = voiceStore.load() ?: run { toast("No voice identity stored on this handset"); return }
         voice.connect(
             TelnyxHandsetVoice.Credentials(
                 sipUser = identity.sipUsername,
                 sipPassword = identity.sipPassword,
                 callerIdName = identity.callerIdName,
                 callerIdNumber = identity.phoneNumber,
-            )
+                fcmToken = pendingFcmToken ?: FirebasePush.storedToken(this),
+            ),
+            pushMetaData = pendingPushMetaData,
         )
+        pendingPushMetaData = null
+        pendingFcmToken = null
         toast("Voice connecting as ${identity.phoneNumber}")
+    }
+
+    private fun stopIncomingCallSurface() {
+        stopService(Intent(this, IncomingCallService::class.java).apply { action = IncomingCallService.ACTION_STOP })
     }
 
     private fun pollCommand() {
         Thread {
             try {
                 val command = transport().poll()
-                if (command == null) {
-                    runOnUiThread { toast("No queued command") }
-                    return@Thread
-                }
+                if (command == null) { runOnUiThread { toast("No queued command") }; return@Thread }
                 runOnUiThread { handleCommand(command) }
             } catch (e: Exception) {
                 runOnUiThread { toast("Poll failed: ${e.message}") }
@@ -166,10 +195,7 @@ class MainActivity : Activity() {
     private fun handleCommand(command: JSONObject) {
         val capability = command.optString("capability")
         val tool = command.optString("tool")
-        if (capability != "android.sms" || tool != "send_sms") {
-            toast("Unsupported command: $capability:$tool")
-            return
-        }
+        if (capability != "android.sms" || tool != "send_sms") { toast("Unsupported command: $capability:$tool"); return }
         val payload = command.optJSONObject("payload") ?: JSONObject()
         phoneInput.setText(payload.optString("target"))
         messageInput.setText(payload.optString("message"))
@@ -193,10 +219,7 @@ class MainActivity : Activity() {
     }
 
     private fun ensurePermissionThenSend(target: String, message: String, commandId: Int?) {
-        if (checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
-            executeSms(target, message, commandId)
-            return
-        }
+        if (checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) { executeSms(target, message, commandId); return }
         pendingTarget = target
         pendingMessage = message
         pendingCommandId = commandId
@@ -231,17 +254,14 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == VOICE_PERMISSION_REQUEST) {
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && pendingVoiceConnect) connectVoiceFromStore()
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED && pendingVoiceConnect) connectVoiceFromStore()
             else toast("Microphone permission is required for voice")
             pendingVoiceConnect = false
             return
         }
         if (requestCode != SMS_PERMISSION_REQUEST) return
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            executeSms(pendingTarget, pendingMessage, pendingCommandId)
-        } else {
-            finishWithReceipt(pendingCommandId, "confirm", "blocked", pendingTarget, "SEND_SMS permission denied by user")
-        }
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) executeSms(pendingTarget, pendingMessage, pendingCommandId)
+        else finishWithReceipt(pendingCommandId, "confirm", "blocked", pendingTarget, "SEND_SMS permission denied by user")
         pendingTarget = ""
         pendingMessage = ""
         pendingCommandId = null

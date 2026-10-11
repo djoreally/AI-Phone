@@ -43,7 +43,7 @@ class TelnyxHandsetVoice(context: Context) {
 
     var onIncomingCall: ((IncomingCall) -> Unit)? = null
 
-    fun connect(input: Credentials) {
+    fun connect(input: Credentials, pushMetaData: String? = null) {
         credentials = input
         val config = CredentialConfig(
             sipUser = input.sipUser,
@@ -55,9 +55,13 @@ class TelnyxHandsetVoice(context: Context) {
             ringBackTone = null,
             logLevel = LogLevel.INFO,
             autoReconnect = true,
+            pushWhenActive = !input.fcmToken.isNullOrBlank(),
         )
         watchEvents()
-        client.connect(credentialConfig = config)
+        client.connect(
+            txPushMetaData = pushMetaData,
+            credentialConfig = config,
+        )
     }
 
     fun startCall(destinationNumber: String, clientState: String = "ai-phone") {
