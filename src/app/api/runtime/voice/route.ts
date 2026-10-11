@@ -13,6 +13,11 @@ type VoiceBody = {
   clientState?: string;
 };
 
+function isEmergencyNumber(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits === "911" || digits === "112" || digits === "999";
+}
+
 export function POST(req: Request) {
   return handle(async () => {
     const body = await readJson<VoiceBody>(req);
@@ -28,6 +33,9 @@ export function POST(req: Request) {
     if (action === "start") {
       const to = str(body.to);
       if (!to) throw new ApiError(400, "Destination number is required");
+      if (isEmergencyNumber(to)) {
+        throw new ApiError(403, "Emergency calling is reserved for the explicit phone.emergency path");
+      }
       const call = await provider.startCall({
         type: "phone.call.start",
         to,
