@@ -24,6 +24,24 @@ class DeviceTransport(
         return response.optJSONObject("command")
     }
 
+    fun startVoiceCall(to: String, clientState: String? = null): JSONObject {
+        val body = JSONObject()
+            .put("deviceId", deviceId)
+            .put("action", "start")
+            .put("to", to)
+        if (!clientState.isNullOrBlank()) body.put("clientState", clientState)
+        return request("POST", "/api/runtime/voice", body)
+    }
+
+    fun answerVoiceCall(providerCallId: String): JSONObject =
+        voiceAction("answer", providerCallId)
+
+    fun rejectVoiceCall(providerCallId: String): JSONObject =
+        voiceAction("reject", providerCallId)
+
+    fun endVoiceCall(providerCallId: String): JSONObject =
+        voiceAction("end", providerCallId)
+
     fun postReceipt(commandId: Int?, artifact: ReceiptArtifact): JSONObject {
         val body = JSONObject()
             .put("deviceId", deviceId)
@@ -31,6 +49,14 @@ class DeviceTransport(
             .put("payload", artifact.payload)
             .put("signature", artifact.signature)
         return request("POST", "/api/runtime/receipts", body)
+    }
+
+    private fun voiceAction(action: String, providerCallId: String): JSONObject {
+        val body = JSONObject()
+            .put("deviceId", deviceId)
+            .put("action", action)
+            .put("providerCallId", providerCallId)
+        return request("POST", "/api/runtime/voice", body)
     }
 
     private fun request(method: String, path: String, body: JSONObject?): JSONObject {
