@@ -16,6 +16,14 @@ object PolicyEngine {
                 level = 3,
                 reason = "Sending a message acts on the world and requires confirmation.",
             )
+            "phone.voice:start_call",
+            "phone.voice:answer_call",
+            "phone.voice:reject_call",
+            "phone.voice:end_call" -> PolicyDecision(
+                decision = Decision.CONFIRM,
+                level = 3,
+                reason = "Changing call state acts on the world and requires confirmation.",
+            )
             else -> PolicyDecision(Decision.DENY, 4, "Capability is not registered on this runtime.")
         }
     }
