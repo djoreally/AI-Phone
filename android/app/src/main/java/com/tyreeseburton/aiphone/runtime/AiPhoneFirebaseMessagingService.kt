@@ -5,6 +5,11 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 class AiPhoneFirebaseMessagingService : FirebaseMessagingService() {
+    override fun onNewToken(token: String) {
+        super.onNewToken(token)
+        FirebasePush.storeToken(this, token)
+    }
+
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         val data = remoteMessage.data
         val message = data["message"].orEmpty()
