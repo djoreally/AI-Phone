@@ -12,18 +12,22 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.tyreeseburton.aiphone.capabilities.SmsCapability
+import com.tyreeseburton.aiphone.capabilities.TelnyxHandsetVoice
 import com.tyreeseburton.aiphone.runtime.Decision
 import com.tyreeseburton.aiphone.runtime.DeviceTransport
 import com.tyreeseburton.aiphone.runtime.PolicyEngine
 import com.tyreeseburton.aiphone.runtime.ReceiptArtifact
 import com.tyreeseburton.aiphone.runtime.ReceiptSigner
 import com.tyreeseburton.aiphone.runtime.ReceiptStore
+import com.tyreeseburton.aiphone.runtime.VoiceIdentityStore
 import org.json.JSONObject
 
 class MainActivity : Activity() {
     private val sms = SmsCapability()
     private val signer = ReceiptSigner()
     private lateinit var receipts: ReceiptStore
+    private lateinit var voiceStore: VoiceIdentityStore
+    private lateinit var voice: TelnyxHandsetVoice
     private lateinit var serverInput: EditText
     private lateinit var deviceIdInput: EditText
     private lateinit var tokenInput: EditText
@@ -32,10 +36,16 @@ class MainActivity : Activity() {
     private var pendingTarget = ""
     private var pendingMessage = ""
     private var pendingCommandId: Int? = null
+    private var pendingVoiceConnect = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         receipts = ReceiptStore(this, signer)
+        voiceStore = VoiceIdentityStore(this)
+        voice = TelnyxHandsetVoice(this)
+        voice.onIncomingCall = { incoming ->
+            runOnUiThread { toast("Incoming call from ${incoming.callerNumber}") }
+        }
         val prefs = getSharedPreferences("runtime", MODE_PRIVATE)
 
         val root = LinearLayout(this).apply {
@@ -43,7 +53,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(48, 72, 48, 48)
         }
-        root.addView(TextView(this).apply { text = "AI Phone Runtime v0.2"; textSize = 24f })
+        root.addView(TextView(this).apply { text = "AI Phone Runtime v0.3"; textSize = 24f })
         root.addView(TextView(this).apply {
             text = "Physical handset enrolled to the control plane. Policy before action. Verified receipt after action."
             textSize = 15f
@@ -58,6 +68,10 @@ class MainActivity : Activity() {
         root.addView(Button(this).apply {
             text = "Enroll this phone"
             setOnClickListener { enrollPhone() }
+        }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply {
+            text = "Sync voice identity & connect"
+            setOnClickListener { syncVoiceIdentity() }
         }, LinearLayout.LayoutParams(-1, -2))
         root.addView(Button(this).apply {
             text = "Poll control plane"
@@ -95,6 +109,43 @@ class MainActivity : Activity() {
                 runOnUiThread { toast("Enrollment failed: ${e.message}") }
             }
         }.start()
+    }
+
+    private fun syncVoiceIdentity() {
+        Thread {
+            try {
+                val config = transport().fetchVoiceConfig()
+                voiceStore.save(config)
+                runOnUiThread { ensureVoicePermissionAndConnect() }
+            } catch (e: Exception) {
+                runOnUiThread { toast("Voice provisioning failed: ${e.message}") }
+            }
+        }.start()
+    }
+
+    private fun ensureVoicePermissionAndConnect() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            connectVoiceFromStore()
+            return
+        }
+        pendingVoiceConnect = true
+        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), VOICE_PERMISSION_REQUEST)
+    }
+
+    private fun connectVoiceFromStore() {
+        val identity = voiceStore.load() ?: run {
+            toast("No voice identity stored on this handset")
+            return
+        }
+        voice.connect(
+            TelnyxHandsetVoice.Credentials(
+                sipUser = identity.sipUsername,
+                sipPassword = identity.sipPassword,
+                callerIdName = identity.callerIdName,
+                callerIdNumber = identity.phoneNumber,
+            )
+        )
+        toast("Voice connecting as ${identity.phoneNumber}")
     }
 
     private fun pollCommand() {
@@ -179,6 +230,12 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == VOICE_PERMISSION_REQUEST) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && pendingVoiceConnect) connectVoiceFromStore()
+            else toast("Microphone permission is required for voice")
+            pendingVoiceConnect = false
+            return
+        }
         if (requestCode != SMS_PERMISSION_REQUEST) return
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
             executeSms(pendingTarget, pendingMessage, pendingCommandId)
@@ -190,7 +247,15 @@ class MainActivity : Activity() {
         pendingCommandId = null
     }
 
+    override fun onDestroy() {
+        voice.close()
+        super.onDestroy()
+    }
+
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
-    companion object { private const val SMS_PERMISSION_REQUEST = 1001 }
+    companion object {
+        private const val SMS_PERMISSION_REQUEST = 1001
+        private const val VOICE_PERMISSION_REQUEST = 1002
+    }
 }
